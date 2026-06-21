@@ -33,6 +33,7 @@ app/
 │   ├── LineDetector.kt           # OpenCV HoughLinesP
 │   ├── BallDetector.kt           # Interface
 │   ├── TFLiteBallDetector.kt     # YOLOv8-nano ball detection
+│   ├── RallyStateMachine.kt      # Serve detection + rally state transitions
 │   ├── BounceDetector.kt         # Kalman filter + trajectory analysis
 │   └── OutJudge.kt               # Bounce vs line boundaries
 ├── calibration/
@@ -63,7 +64,7 @@ OutJudge
   → OutCall(boolean)
 
 PlayViewModel
-  ← Frame → LineDetector + BallDetector + BounceDetector + OutJudge
+  ← Frame → LineDetector + BallDetector + RallyStateMachine + BounceDetector + OutJudge
   → UI state + FlashAlert trigger
 ```
 
@@ -79,10 +80,12 @@ LineDetector.detect(bmp) → List<Line>
   &  (verify calibration still valid)
 TFLiteBallDetector.detect(bmp) → List<DetectionResult>
   ↓
-BounceDetector.update(ballPositions)
+RallyStateMachine.update(ballPos, frameTime)
+  ↓
+BounceDetector.update(ballPositions) [only in RALLY state]
   → detect bounce event → (x, y)
   ↓
-OutJudge.judge(x, y, courtGeometry)
+OutJudge.judge(x, y, courtGeometry) [only in RALLY state]
   → Out if outside any line boundary
   ↓
 PlayViewModel → FlashAlert.flash() + update UI
@@ -229,6 +232,126 @@ Top-down view (phone at baseline looking toward net, monitoring one half):
 - Confidence threshold: <0.3 → skip frame (no decision)
 - Must have 3+ consistent detections before calling out (debounce)
 
+## Rally State Machine
+
+Phân biệt warm-up / pre-rally vs real rally để tránh false positive out call.
+
+### State diagram
+
+```
+  ┌─────────────────────────────────────────────────────┐
+  │                                                     │
+  │   IDLE ◄───────── (reset button / auto timeout 5s)  │
+  │    │                                                │
+  │    │  serve pattern detected                        │
+  │    ▼                                                │
+  │  WATCHING ──────────────────┐                       │
+  │    │                        │                       │
+  │    │ ball crosses kitchen   │ ball disappears >3s   │
+  │    │ line from near→far     │ or no serve in 10s    │
+  │    ▼                        ▼                       │
+  │  RALLY ──── out called ──► COOLDOWN ──(3s)──► IDLE  │
+  │    │                                                │
+  │    │ ball no see >5s                                │
+  │    └────────────────────────────────────────────────┘
+  └─────────────────────────────────────────────────────┘
+```
+
+### State transitions
+
+| From → To | Trigger | Detail |
+|---|---|---|
+| IDLE → WATCHING | Ball detected | App on, camera running, tracking ball passively |
+| WATCHING → RALLY | **Serve pattern confirmed** | Ball started from baseline area (<25% court length), crossed near kitchen line, trajectory consistent toward net |
+| WATCHING → IDLE | Timeout | No serve pattern detected for 10s, or ball disappeared >3s (warm-up bounce → reset) |
+| RALLY → COOLDOWN | Out call | Bounce deemed out → flash + beep, freeze decision |
+| RALLY → IDLE | Rally end | Ball not detected for 5s → assume rally over, no out occurred |
+| COOLDOWN → IDLE | Timer | 3s after out call → auto reset to IDLE |
+
+### Serve pattern detection (WATCHING → RALLY)
+
+Phone ở baseline nhìn về net, court top-down với y-axis hướng từ baseline → net:
+
+```
+  y=44ft (net end)
+    ═══════════════  ← Net
+    │             │
+    │  FAR SIDE   │  ← far kitchen line: y=37ft
+    │             │
+    ├─────────────┤  
+    │  NET ZONE   │  
+    ├─────────────┤  ← near kitchen line: y=7ft
+    │             │
+    │  NEAR SIDE  │  
+    │             │
+    ├─────────────┤  ← baseline: y=0
+    │ ● ball      │  ← serve starts here
+  y=0 (phone end)
+```
+
+**Serve pattern criteria (all must be true):**
+1. Ball **first detected** in the lower 25% of court (y < 0.25 * courtLength) — i.e., near baseline
+2. Ball **moves toward net** consistently (positive y velocity in top-down space) for 5+ frames
+3. Ball **crosses near kitchen line** (y > 7ft) without reversing
+4. Ball **continues beyond** — not a single bounce then retreat
+
+**Pre-rally filter (stay WATCHING if):**
+- Ball appears in mid-court or far court first → already in rally → ignore, stay WATCHING
+- Ball trajectory < 3 frames → brief bounce/warm-up → ignore
+- Ball appears and stays within kitchen zone → net play / dinking → not a serve
+- Ball crosses kitchen but direction reverses immediately → practice return → ignore
+
+### Implementation
+
+```kotlin
+enum class RallyState { IDLE, WATCHING, RALLY, COOLDOWN }
+
+data class RallyStateMachine(
+    val state: RallyState = RallyState.IDLE,
+    private val trajectoryBuffer: List<Point2D> = emptyList(),
+    private val ballLastSeenFrame: Long = 0L
+) {
+    fun update(ballPosition: Point2D?, frameTime: Long): RallyState {
+        return when (state) {
+            RallyState.IDLE -> if (ballPosition != null) RallyState.WATCHING else RallyState.IDLE
+            RallyState.WATCHING -> {
+                if (ballPosition == null && frameTime - ballLastSeenFrame > 3000) RallyState.IDLE
+                else if (ballPosition != null && detectServe(ballPosition)) RallyState.RALLY
+                else RallyState.WATCHING
+            }
+            RallyState.RALLY -> {
+                if (outCalled) RallyState.COOLDOWN
+                else if (ballPosition == null && frameTime - ballLastSeenFrame > 5000) RallyState.IDLE
+                else RallyState.RALLY
+            }
+            RallyState.COOLDOWN -> {
+                if (frameTime - outCallTime > 3000) RallyState.IDLE
+                else RallyState.COOLDOWN
+            }
+        }
+    }
+}
+```
+
+### Data flow update (with state machine)
+```
+CameraX ImageProxy
+  ↓
+Convert to Bitmap
+  ↓
+CourtCalibrator.warpToTopDown()
+  ↓
+LineDetector.detect(bmp) + TFLiteBallDetector.detect(bmp)
+  ↓
+RallyStateMachine.update(ballPos, frameTime)
+  ↓
+BounceDetector.update(ballPositions) [only in RALLY state]
+  ↓
+OutJudge.judge(x, y, courtGeometry) [only in RALLY state]
+  ↓
+PlayViewModel → FlashAlert + UI state update
+```
+
 ## Implementation Order (Phase 1)
 
 | Step | Task | Depends on |
@@ -239,11 +362,12 @@ Top-down view (phone at baseline looking toward net, monitoring one half):
 | 4 | LineDetector (OpenCV HoughLinesP) | Step 3 |
 | 5 | CourtGeometry + line overlay on preview | Step 4 |
 | 6 | TFLiteBallDetector (model integration) | Step 2 |
-| 7 | BounceDetector (Kalman filter) | Step 6 |
-| 8 | OutJudge (bounce vs court geometry) | Step 5 + 7 |
-| 9 | FlashAlert + audio beep | Step 8 |
-| 10 | PlayScreen UI (live status, stats) | Step 9 |
-| 11 | S23+ optimization (GPU delegate, 720p) | Step 10 |
+| 7 | RallyStateMachine (serve detection + state transitions) | Step 6 |
+| 8 | BounceDetector (Kalman filter) | Step 6 |
+| 9 | OutJudge (bounce vs court geometry) | Step 5 + 8 |
+| 10 | FlashAlert + audio beep | Step 9 |
+| 11 | PlayScreen UI (live status, stats, state indicator) | Step 10 |
+| 12 | S23+ optimization (GPU delegate, 720p) | Step 11 |
 
 ## Code Conventions
 - **No comments in code** unless documenting public API
