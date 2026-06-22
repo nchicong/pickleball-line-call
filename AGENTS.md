@@ -115,6 +115,15 @@ PlayViewModel → FlashAlert.flash() + update UI
 - **Slow-mo**: Can use 960fps capture later (Phase 2+)
 - **Camera**: 4K@60fps input, keep 720p for analysis
 
+### Screen-off mode (power saving)
+- **Mặc định screen off khi đang play** — CameraX `ImageAnalysis` vẫn chạy, UI không render (dùng `PowerManager.PARTIAL_WAKE_LOCK` giữ CPU)
+- **Wake triggers** (kích hoạt màn hình sáng lên):
+  - Double-tap màn hình → wake 5s
+  - Pick-up (cầm máy lên) → wake 5s (dùng accelerometer low-power `SENSOR_DELAY_UI`)
+  - Out call → auto wake 3s + vibrate + beep
+- **Why**: Tiết kiệm ~15-18%/h pin (màn hình adaptive 120Hz), giúp 2 tiếng chỉ hao ~50-60% thay vì gần hết pin
+- **Proximity sensor** (S23+ range ~3-5cm) không dùng để wake — quá gần, chỉ dùng để auto tắt màn khi áp vào túi/người
+
 ### Detection at runtime
 ```kotlin
 val delegate = when {
