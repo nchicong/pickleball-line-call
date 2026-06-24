@@ -1,6 +1,7 @@
 import os
 import yaml
 import argparse
+from pathlib import Path
 from ultralytics import YOLO
 
 
@@ -55,8 +56,6 @@ def main():
         print(f"[DONE] TFLite model exported to: {dst}")
     else:
         print(f"[WARN] TFLite file not found. Check {saved_model_dir}")
-
-    from pathlib import Path
 
 
 if __name__ == "__main__":

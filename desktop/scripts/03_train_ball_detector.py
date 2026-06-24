@@ -35,21 +35,33 @@ def main():
     data_yaml = find_data_yaml(dataset_dir)
     print(f"[INFO] Using data.yaml: {data_yaml}")
 
-    model = YOLO(train_cfg["model"])
-    results = model.train(
-        data=data_yaml,
-        epochs=train_cfg["epochs"],
-        imgsz=train_cfg["imgsz"],
-        batch=train_cfg["batch"],
-        patience=train_cfg["patience"],
-        lr0=train_cfg["lr0"],
-        augment=train_cfg["augment"],
-        close_mosaic=train_cfg["close_mosaic"],
-        project=output_dir,
-        name="train",
-        device=0,
-        verbose=True,
-    )
+    last_ckpt = os.path.join(output_dir, "train", "weights", "last.pt")
+    if os.path.exists(last_ckpt):
+        print(f"[INFO] Resuming from checkpoint: {last_ckpt}")
+        model = YOLO(last_ckpt)
+        results = model.train(
+            resume=True,
+            workers=6,
+            device=0,
+            verbose=True,
+        )
+    else:
+        model = YOLO(train_cfg["model"])
+        results = model.train(
+            data=data_yaml,
+            epochs=train_cfg["epochs"],
+            imgsz=train_cfg["imgsz"],
+            batch=train_cfg["batch"],
+            patience=train_cfg["patience"],
+            lr0=train_cfg["lr0"],
+            augment=train_cfg["augment"],
+            close_mosaic=train_cfg["close_mosaic"],
+            project=output_dir,
+            name="train",
+            device=0,
+            workers=6,
+            verbose=True,
+        )
     print(f"[DONE] Training complete. Best model: {os.path.join(output_dir, 'train', 'weights', 'best.pt')}")
 
 
