@@ -100,6 +100,7 @@ def main():
     parser.add_argument("--output", default="data/results/visualized.mp4")
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--imgsz", type=int, default=320)
+    parser.add_argument("--start_frame", type=int, default=0)
     parser.add_argument("--max_frames", type=int, default=0)
     args = parser.parse_args()
 
@@ -129,9 +130,15 @@ def main():
     fps = cap.get(cv2.CAP_PROP_FPS)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    video_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    start_frame = min(args.start_frame, video_total - 1)
+    if start_frame > 0:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    end_frame = video_total
     if args.max_frames > 0:
-        total_frames = min(total_frames, args.max_frames)
+        end_frame = min(video_total, start_frame + args.max_frames)
+
+    total_frames = end_frame
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
@@ -143,11 +150,11 @@ def main():
             rally_frames.add(f)
 
     trail = []
-    frame_idx = 0
+    frame_idx = start_frame
 
-    print(f"[INFO] Rendering {total_frames} frames to {output_path}")
+    print(f"[INFO] Rendering frames {start_frame}-{end_frame - 1} to {output_path}")
 
-    while frame_idx < total_frames:
+    while frame_idx < end_frame:
         ret, frame = cap.read()
         if not ret:
             break

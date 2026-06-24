@@ -104,6 +104,7 @@ def main():
     parser.add_argument("--output", default="data/results/analysis.json")
     parser.add_argument("--conf", type=float, default=CONF_THRESH)
     parser.add_argument("--imgsz", type=int, default=320)
+    parser.add_argument("--start_frame", type=int, default=0)
     parser.add_argument("--max_frames", type=int, default=0)
     args = parser.parse_args()
 
@@ -118,12 +119,19 @@ def main():
 
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    video_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    start_frame = min(args.start_frame, video_total - 1)
+    if start_frame > 0:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    end_frame = video_total
     if args.max_frames > 0:
-        total_frames = min(total_frames, args.max_frames)
+        end_frame = min(video_total, start_frame + args.max_frames)
+    total_frames = end_frame
+
+    total_frames = end_frame
 
     trajectory = deque(maxlen=TRAJECTORY_LEN)
-    frame_idx = 0
+    frame_idx = start_frame
     out_calls = []
     rallies = []
     in_rally = False
@@ -131,10 +139,11 @@ def main():
     out_debounce = 0
     consecutive_detections = deque(maxlen=5)
 
-    print(f"[INFO] Video: {video_path} ({total_frames} frames, {fps:.1f} fps)")
+    print(f"[INFO] Video: {video_path} ({video_total} frames, {fps:.1f} fps)")
+    print(f"[INFO] Processing frames {start_frame} to {end_frame - 1} ({end_frame - start_frame} frames)")
     print(f"[INFO] Calibration: {calib_path}")
 
-    while frame_idx < total_frames:
+    while frame_idx < end_frame:
         ret, frame = cap.read()
         if not ret:
             break
