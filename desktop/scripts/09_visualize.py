@@ -109,7 +109,7 @@ def main():
     parser.add_argument("--calibration", required=True)
     parser.add_argument("--analysis", default=None)
     parser.add_argument("--output", default="data/results/visualized.mp4")
-    parser.add_argument("--conf", type=float, default=0.15)
+    parser.add_argument("--conf", type=float, default=0.10)
     parser.add_argument("--imgsz", type=int, default=320)
     parser.add_argument("--start_frame", type=int, default=0)
     parser.add_argument("--max_frames", type=int, default=0)

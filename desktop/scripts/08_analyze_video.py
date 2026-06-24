@@ -7,19 +7,19 @@ from ultralytics import YOLO
 from collections import deque
 
 
-TRAJECTORY_LEN = 20
-BOUNCE_WINDOW = 5
-CONF_THRESH = 0.15
+TRAJECTORY_LEN = 30
+CONF_THRESH = 0.10
 DEBOUNCE_FRAMES = 3
 SERVE_START_Y_THRESH = 4.4
 SERVE_MIN_FRAMES = 8
 SERVE_NET_Y = 22.0
 SERVE_MIN_VELOCITY = 0.3
 SERVE_IDLE_RESET = 15
-KITCHEN_Y = 7.0
-MID_Y = 22.0
+FLIGHT_GAP_FRAMES = 4
+RALLY_END_FRAMES = 60
 COURT_LENGTH = 44.0
 COURT_WIDTH = 20.0
+OUT_MARGIN = 0.3
 
 BALL_CLASS_ID = 0
 
@@ -36,10 +36,6 @@ def warp_point(pt, M):
     pt_h = np.array([[pt[0], pt[1]]], dtype=np.float32).reshape(-1, 1, 2)
     warped = cv2.perspectiveTransform(pt_h, M)
     return (warped[0, 0, 0], warped[0, 0, 1])
-
-
-def is_ball_in_bounds(x, y):
-    return 0 <= x <= COURT_WIDTH and 0 <= y <= COURT_LENGTH
 
 
 def detect_serve(trajectory):
@@ -61,41 +57,11 @@ def detect_serve(trajectory):
     return True
 
 
-def bouncing_trajectory(trajectory):
-    if len(trajectory) < 3:
-        return False
-    speeds = []
-    for i in range(1, len(trajectory)):
-        dx = trajectory[i][0] - trajectory[i - 1][0]
-        dy = trajectory[i][1] - trajectory[i - 1][1]
-        speeds.append(np.sqrt(dx * dx + dy * dy))
-    avg_speed = np.mean(speeds)
-    if avg_speed < 0.5:
-        return False
-    return True
-
-
-def detect_bounce(trajectory):
-    if len(trajectory) < BOUNCE_WINDOW + 2:
-        return -1, None
-    y_vals = [p[1] for p in trajectory]
-    window = BOUNCE_WINDOW
-    for i in range(window, len(trajectory) - window):
-        before = y_vals[i - window : i]
-        after = y_vals[i : i + window + 1]
-        dy_before = np.mean(np.diff(before)) if len(before) > 1 else 0
-        dy_after = np.mean(np.diff(after)) if len(after) > 1 else 0
-        if dy_before > 1.0 and dy_after < -1.0:
-            return i, trajectory[i]
-    return -1, None
-
-
-def judge_out(bounce_pt):
-    x, y = bounce_pt
-    margin = 0.05
-    if x < -margin or x > COURT_WIDTH + margin:
+def judge_out(pt):
+    x, y = pt
+    if x < -OUT_MARGIN or x > COURT_WIDTH + OUT_MARGIN:
         return True
-    if y < -margin or y > COURT_LENGTH + margin:
+    if y < -OUT_MARGIN or y > COURT_LENGTH + OUT_MARGIN:
         return True
     return False
 
@@ -141,8 +107,6 @@ def main():
         end_frame = min(video_total, start_frame + args.max_frames)
     total_frames = end_frame
 
-    total_frames = end_frame
-
     trajectory = deque(maxlen=TRAJECTORY_LEN)
     frame_idx = start_frame
     out_calls = []
@@ -151,7 +115,9 @@ def main():
     rally_start = -1
     out_debounce = 0
     ball_last_seen = -100
-    consecutive_detections = deque(maxlen=30)
+    in_flight = False
+    flight_start = -100
+    consecutive_detections = deque(maxlen=80)
 
     print(f"[INFO] Video: {video_path} ({video_total} frames, {fps:.1f} fps)")
     print(f"[INFO] Processing frames {start_frame} to {end_frame - 1} ({end_frame - start_frame} frames)")
@@ -217,40 +183,51 @@ def main():
                 ball_last_seen = -100
                 print(f"[RALLY] Started at frame {frame_idx}")
         else:
-            if len(trajectory) >= 3 and bouncing_trajectory(list(trajectory)):
-                bounce_idx, bounce_pt = detect_bounce(list(trajectory))
-                if bounce_pt is not None:
-                    is_out = judge_out(bounce_pt)
-                    out_debounce = out_debounce + 1 if is_out else 0
-                    if out_debounce >= DEBOUNCE_FRAMES:
-                        print(f"[OUT] Frame {frame_idx}: bounce at ({float(bounce_pt[0]):.1f}, {float(bounce_pt[1]):.1f})")
-                        out_calls.append(
-                            {
+            if ball_court_positions:
+                if in_flight:
+                    gap = frame_idx - flight_start
+                    if gap >= FLIGHT_GAP_FRAMES:
+                        landing = ball_court_positions[0]
+                        lx, ly = landing["court_x"], landing["court_y"]
+                        is_out = judge_out((lx, ly))
+                        out_debounce = out_debounce + 1 if is_out else 0
+                        if out_debounce >= DEBOUNCE_FRAMES:
+                            print(f"[OUT] Frame {frame_idx}: landing at ({lx:.1f}, {ly:.1f})")
+                            out_calls.append({
                                 "frame": frame_idx,
-                                "bounce_x": float(bounce_pt[0]),
-                                "bounce_y": float(bounce_pt[1]),
+                                "bounce_x": float(lx),
+                                "bounce_y": float(ly),
                                 "is_out": True,
-                            }
-                        )
-                        rallies.append(
-                            {
+                            })
+                            rallies.append({
                                 "start_frame": rally_start,
                                 "end_frame": frame_idx,
                                 "out_frame": frame_idx,
-                                "bounce": [float(bounce_pt[0]), float(bounce_pt[1])],
-                            }
-                        )
-                        in_rally = False
-                        out_debounce = 0
-                        trajectory.clear()
-            recent_missed = sum(1 for c in list(consecutive_detections)[-40:] if c == 0)
-            if recent_missed >= 35:
-                print(f"[RALLY END] Frame {frame_idx}: ball lost >8 of last 10 frames")
-                rallies.append(
-                    {"start_frame": rally_start, "end_frame": frame_idx, "out_frame": -1, "bounce": None}
-                )
-                in_rally = False
-                trajectory.clear()
+                                "bounce": [float(lx), float(ly)],
+                            })
+                            in_rally = False
+                            out_debounce = 0
+                            rally_start = -1
+                            trajectory.clear()
+                in_flight = False
+            else:
+                if not in_flight:
+                    in_flight = True
+                    flight_start = frame_idx
+                elif frame_idx - flight_start > RALLY_END_FRAMES:
+                    print(f"[RALLY END] Frame {frame_idx}: ball lost >{RALLY_END_FRAMES} frames")
+                    rallies.append({
+                        "start_frame": rally_start,
+                        "end_frame": frame_idx,
+                        "out_frame": -1,
+                        "bounce": None,
+                    })
+                    in_rally = False
+                    rally_start = -1
+                    trajectory.clear()
+                    in_flight = False
+                    flight_start = -100
+                    out_debounce = 0
 
         if frame_idx % 500 == 0:
             print(f"[PROGRESS] Frame {frame_idx}/{total_frames}")
