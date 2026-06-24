@@ -7,14 +7,17 @@ from ultralytics import YOLO
 from collections import deque
 
 
-TRAJECTORY_LEN = 15
+TRAJECTORY_LEN = 20
 BOUNCE_WINDOW = 5
 CONF_THRESH = 0.25
 DEBOUNCE_FRAMES = 3
-RALLY_TIMEOUT_FRAMES = 150
-SERVE_Y_THRESH = 0.25
-SERVE_MIN_FRAMES = 5
+SERVE_START_Y_THRESH = 4.4
+SERVE_MIN_FRAMES = 8
+SERVE_NET_Y = 22.0
+SERVE_MIN_VELOCITY = 0.3
+SERVE_IDLE_RESET = 15
 KITCHEN_Y = 7.0
+MID_Y = 22.0
 COURT_LENGTH = 44.0
 COURT_WIDTH = 20.0
 
@@ -43,17 +46,18 @@ def detect_serve(trajectory):
     if len(trajectory) < SERVE_MIN_FRAMES:
         return False
     first_y = trajectory[0][1]
-    if first_y > COURT_LENGTH * SERVE_Y_THRESH:
+    if first_y > SERVE_START_Y_THRESH:
+        return False
+    last_y = trajectory[-1][1]
+    if last_y < SERVE_NET_Y:
         return False
     y_vals = [p[1] for p in trajectory]
     dy = y_vals[-1] - y_vals[0]
-    if dy < 0:
+    if dy < SERVE_MIN_VELOCITY * len(trajectory):
         return False
-    kitchen_crossings = sum(
-        1 for p in trajectory if p[1] > KITCHEN_Y
-    )
-    if kitchen_crossings < 3:
-        return False
+    for i in range(1, len(trajectory)):
+        if trajectory[i][1] < trajectory[i-1][1]:
+            return False
     return True
 
 
@@ -146,7 +150,8 @@ def main():
     in_rally = False
     rally_start = -1
     out_debounce = 0
-    consecutive_detections = deque(maxlen=5)
+    ball_last_seen = -100
+    consecutive_detections = deque(maxlen=30)
 
     print(f"[INFO] Video: {video_path} ({video_total} frames, {fps:.1f} fps)")
     print(f"[INFO] Processing frames {start_frame} to {end_frame - 1} ({end_frame - start_frame} frames)")
@@ -198,14 +203,18 @@ def main():
             best = max(ball_court_positions, key=lambda b: b["confidence"])
             trajectory.append((best["court_x"], best["court_y"]))
             consecutive_detections.append(1)
+            ball_last_seen = frame_idx
         else:
             consecutive_detections.append(0)
 
         if not in_rally:
+            if trajectory and frame_idx - ball_last_seen > SERVE_IDLE_RESET:
+                trajectory.clear()
             if detect_serve(list(trajectory)):
                 in_rally = True
                 rally_start = frame_idx
                 trajectory.clear()
+                ball_last_seen = -100
                 print(f"[RALLY] Started at frame {frame_idx}")
         else:
             if len(trajectory) >= 3 and bouncing_trajectory(list(trajectory)):
@@ -234,15 +243,14 @@ def main():
                         in_rally = False
                         out_debounce = 0
                         trajectory.clear()
-            missed = sum(consecutive_detections)
-            if missed >= 5:
-                if len([c for c in consecutive_detections if c == 0]) >= 5:
-                    print(f"[RALLY END] Frame {frame_idx}: ball lost >5 frames")
-                    rallies.append(
-                        {"start_frame": rally_start, "end_frame": frame_idx, "out_frame": -1, "bounce": None}
-                    )
-                    in_rally = False
-                    trajectory.clear()
+            recent_missed = sum(1 for c in list(consecutive_detections)[-10:] if c == 0)
+            if recent_missed >= 8:
+                print(f"[RALLY END] Frame {frame_idx}: ball lost >8 of last 10 frames")
+                rallies.append(
+                    {"start_frame": rally_start, "end_frame": frame_idx, "out_frame": -1, "bounce": None}
+                )
+                in_rally = False
+                trajectory.clear()
 
         if frame_idx % 500 == 0:
             print(f"[PROGRESS] Frame {frame_idx}/{total_frames}")
