@@ -106,6 +106,7 @@ def main():
     parser.add_argument("--imgsz", type=int, default=320)
     parser.add_argument("--start_frame", type=int, default=0)
     parser.add_argument("--max_frames", type=int, default=0)
+    parser.add_argument("--exclude_regions", nargs="+", default=[], help="Exclude regions x1,y1,x2,y2 (repeatable)")
     args = parser.parse_args()
 
     base = os.path.join(os.path.dirname(__file__), "..")
@@ -114,6 +115,14 @@ def main():
     output_path = args.output if os.path.isabs(args.output) else os.path.join(base, args.output)
 
     M, Minv, calib = load_calibration(calib_path)
+
+    exclude_zones = []
+    for r in args.exclude_regions:
+        parts = [int(x) for x in r.replace(" ", "").split(",")]
+        if len(parts) == 4:
+            exclude_zones.append(parts)
+    if exclude_zones:
+        print(f"[INFO] Excluding regions: {exclude_zones}")
 
     model = YOLO(args.model)
 
@@ -165,6 +174,13 @@ def main():
                 xyxy = box.xyxy[0].tolist()
                 cx = (xyxy[0] + xyxy[2]) / 2.0
                 cy = (xyxy[1] + xyxy[3]) / 2.0
+                in_excluded = False
+                for (x1, y1, x2, y2) in exclude_zones:
+                    if x1 <= cx <= x2 and y1 <= cy <= y2:
+                        in_excluded = True
+                        break
+                if in_excluded:
+                    continue
                 cx_warped, cy_warped = warp_point((cx, cy), M)
                 ball_court_positions.append(
                     {
