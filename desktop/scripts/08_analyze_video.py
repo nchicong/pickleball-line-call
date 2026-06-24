@@ -9,7 +9,7 @@ from collections import deque
 
 TRAJECTORY_LEN = 20
 BOUNCE_WINDOW = 5
-CONF_THRESH = 0.25
+CONF_THRESH = 0.15
 DEBOUNCE_FRAMES = 3
 SERVE_START_Y_THRESH = 4.4
 SERVE_MIN_FRAMES = 8
@@ -243,8 +243,8 @@ def main():
                         in_rally = False
                         out_debounce = 0
                         trajectory.clear()
-            recent_missed = sum(1 for c in list(consecutive_detections)[-10:] if c == 0)
-            if recent_missed >= 8:
+            recent_missed = sum(1 for c in list(consecutive_detections)[-40:] if c == 0)
+            if recent_missed >= 35:
                 print(f"[RALLY END] Frame {frame_idx}: ball lost >8 of last 10 frames")
                 rallies.append(
                     {"start_frame": rally_start, "end_frame": frame_idx, "out_frame": -1, "bounce": None}

@@ -25,6 +25,10 @@ def load_analysis(path):
         return json.load(f)
 
 
+NET_Y = 22.0
+KITCHEN_OFFSET = 7.0
+
+
 def draw_court_overlay(frame, Minv):
     court_pts = [
         (0, 0),
@@ -37,12 +41,13 @@ def draw_court_overlay(frame, Minv):
 
     cv2.polylines(frame, [img_pts], True, (0, 255, 0), 2)
 
-    kitchen_y = 7.0
+    near_kitchen_y = NET_Y - KITCHEN_OFFSET
+    far_kitchen_y = NET_Y + KITCHEN_OFFSET
     kitchen_pts = [
-        (0, kitchen_y),
-        (COURT_WIDTH, kitchen_y),
-        (COURT_WIDTH, COURT_LENGTH - kitchen_y),
-        (0, COURT_LENGTH - kitchen_y),
+        (0, near_kitchen_y),
+        (COURT_WIDTH, near_kitchen_y),
+        (0, far_kitchen_y),
+        (COURT_WIDTH, far_kitchen_y),
     ]
     src_pts = np.array(kitchen_pts, dtype=np.float32).reshape(-1, 1, 2)
     img_pts = cv2.perspectiveTransform(src_pts, Minv).astype(np.int32)
@@ -58,6 +63,12 @@ def draw_court_overlay(frame, Minv):
     src_pts = np.array(baseline_pts, dtype=np.float32).reshape(-1, 1, 2)
     img_pts = cv2.perspectiveTransform(src_pts, Minv).astype(np.int32)
     cv2.line(frame, tuple(img_pts[0, 0]), tuple(img_pts[1, 0]), (0, 0, 255), 2)
+
+    net_pts = [(0, NET_Y), (COURT_WIDTH, NET_Y)]
+    src_pts = np.array(net_pts, dtype=np.float32).reshape(-1, 1, 2)
+    img_pts = cv2.perspectiveTransform(src_pts, Minv).astype(np.int32)
+    cv2.line(frame, tuple(img_pts[0, 0]), tuple(img_pts[1, 0]), (255, 255, 255), 2)
+    cv2.putText(frame, "NET", (img_pts[0,0,0], img_pts[0,0,1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
     return frame
 
@@ -98,7 +109,7 @@ def main():
     parser.add_argument("--calibration", required=True)
     parser.add_argument("--analysis", default=None)
     parser.add_argument("--output", default="data/results/visualized.mp4")
-    parser.add_argument("--conf", type=float, default=0.25)
+    parser.add_argument("--conf", type=float, default=0.15)
     parser.add_argument("--imgsz", type=int, default=320)
     parser.add_argument("--start_frame", type=int, default=0)
     parser.add_argument("--max_frames", type=int, default=0)
