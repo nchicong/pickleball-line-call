@@ -1,0 +1,40 @@
+# Ball detection dataset
+ball_detection:
+  workspace: liberin-technologies
+  project: pickleball-vision
+  version: 6
+  format: yolov8
+  classes: [ball, Court]  # we only use "ball" class
+
+# Court keypoints dataset (for Phase 2)
+court_keypoints:
+  workspace: syncz
+  project: court-keypoints-syncz
+  version: 1
+  format: yolov8
+  keypoints: 12
+
+# Training hyperparameters
+training:
+  ball_detector:
+    model: yolov8n.pt          # base model
+    imgsz: 320                 # input size (can increase to 640 later)
+    epochs: 100
+    batch: 16
+    patience: 15
+    lr0: 0.01
+    augment: true
+    close_mosaic: 10           # disable mosaic in last 10 epochs
+
+  court_keypoints:
+    model: yolov8n-pose.pt
+    imgsz: 640
+    epochs: 100
+    batch: 16
+    patience: 15
+    lr0: 0.01
+
+# TFLite export
+export:
+  imgsz: 320                   # must match training imgsz
+  int8: true                   # full integer quantization
