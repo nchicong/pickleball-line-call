@@ -189,12 +189,12 @@ def main():
                     is_out = judge_out(bounce_pt)
                     out_debounce = out_debounce + 1 if is_out else 0
                     if out_debounce >= DEBOUNCE_FRAMES:
-                        print(f"[OUT] Frame {frame_idx}: bounce at {bounce_pt}")
+                        print(f"[OUT] Frame {frame_idx}: bounce at ({float(bounce_pt[0]):.1f}, {float(bounce_pt[1]):.1f})")
                         out_calls.append(
                             {
                                 "frame": frame_idx,
-                                "bounce_x": bounce_pt[0],
-                                "bounce_y": bounce_pt[1],
+                                "bounce_x": float(bounce_pt[0]),
+                                "bounce_y": float(bounce_pt[1]),
                                 "is_out": True,
                             }
                         )
@@ -203,7 +203,7 @@ def main():
                                 "start_frame": rally_start,
                                 "end_frame": frame_idx,
                                 "out_frame": frame_idx,
-                                "bounce": list(bounce_pt),
+                                "bounce": [float(bounce_pt[0]), float(bounce_pt[1])],
                             }
                         )
                         in_rally = False
