@@ -41,7 +41,7 @@ def main():
         model = YOLO(last_ckpt)
         results = model.train(
             resume=True,
-            workers=6,
+            workers=2,
             device=0,
             verbose=True,
         )
@@ -59,7 +59,7 @@ def main():
             project=output_dir,
             name="train",
             device=0,
-            workers=6,
+            workers=2,
             verbose=True,
         )
     print(f"[DONE] Training complete. Best model: {os.path.join(output_dir, 'train', 'weights', 'best.pt')}")

@@ -153,6 +153,9 @@ def main():
                 if in_excluded:
                     continue
                 cx_warped, cy_warped = warp_point((cx, cy), M)
+                COURT_BOUNDS_MARGIN = 10.0  # generous margin for trajectory filtering
+                if not (-COURT_BOUNDS_MARGIN <= cx_warped <= COURT_WIDTH + COURT_BOUNDS_MARGIN and -COURT_BOUNDS_MARGIN <= cy_warped <= COURT_LENGTH + COURT_BOUNDS_MARGIN):
+                    continue
                 ball_court_positions.append(
                     {
                         "frame": frame_idx,
