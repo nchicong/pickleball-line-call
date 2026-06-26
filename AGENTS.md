@@ -159,24 +159,30 @@ val delegate = when {
 
 ## TFLite Model
 
-### Model specs (to be created/trained later)
+### Model specs (v2 — trained on small-ball data)
 | Property | Value |
 |---|---|
 | Model | YOLOv8-nano |
-| Input | 320×320×3 (RGB, INT8 quantized) |
+| Input | 640×640×3 (RGB, INT8 quantized) |
 | Output | 84×8400 tensor (box + class scores) |
 | Classes | 1: `ball` |
 | Quantization | INT8 (full integer) |
-| Size target | ~3-5MB |
-| FPS (S23+ GPU) | ~40 |
-| FPS (S23+ NNAPI) | ~35 |
+| Size | 3.1 MB |
+| Training data | `ball_dataset_v2` (1,292 images, 1,015 ball annotations from `pickleball-uninu` + `PickleBall Detection`) |
+| Training imgsz | 640 |
+| Epochs | 100 |
+| Best mAP50 | 0.828 (epoch 33) |
+| Best mAP50-95 | 0.428 (epoch 98) |
+| FPS (RTX 3060) | ~80 (at 640x640) |
+| FPS (S23+ GPU) | estimate ~30-40 |
+| FPS (S23+ NNAPI) | estimate ~25-35 |
 
-### Training data needs
-- 500-1000 images of pickleball balls on courts
-- Varied lighting: sunny, overcast, evening
-- Varied angles: from baseline, from 45°, from sideline
-- Ball at different distances (near: 40-60px, mid: 15-30px, far: 5-10px)
-- Augment with rotation, brightness, contrast, blur
+### Training data notes
+- Existing datasets `pickleball-vision/6` and `pickleball-5pshr` have HUGE ball bboxes (rel_area 0.03–0.23, ~160×160px at 640×640) — not useful for small-ball detection
+- Merged `pickleball-uninu` (118 img, 195 ball anns) + `PickleBall Detection` (882 img, 696 ball anns) into `ball_dataset_v2` — tiny ball bboxes (rel_area median 0.00013–0.00020, ~9×9px at 640×640)
+- 1,015 total ball annotations is still small; model benefits from more data
+- Training data comes from different sources (domain gap) — model trained on these generalizes to our video but still shows false positives in background areas (scorer's table, back wall)
+- **Future**: 500-1000 images of pickleball balls on courts with varied lighting (sunny, overcast, evening), varied angles (baseline, 45°, sideline), ball at different distances (near: 40-60px, mid: 15-30px, far: 5-10px), augmented with rotation, brightness, contrast, blur
 
 ### Integration
 ```kotlin
@@ -193,6 +199,8 @@ class TFLiteBallDetector(context: Context, useGpu: Boolean) {
     }
 }
 ```
+
+**Important**: Apply a court bounds filter to reject detections far outside the court (e.g., x < -10ft or x > 30ft or y < -10ft or y > 54ft in warped court coordinates). The v2 model has false positives in background areas (scorer's table, back wall) that map to unrealistic court positions (x > 30ft). A generous margin (±10ft) removes these without losing legitimate out-call detections.
 
 ## Out Decision Logic
 
