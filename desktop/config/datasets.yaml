@@ -1,10 +1,10 @@
-# Ball detection dataset
+# Ball detection dataset (v2 — combined small-ball datasets)
 ball_detection:
-  workspace: liberin-technologies
-  project: pickleball-vision
-  version: 6
+  workspace: pickleball-yumqp
+  project: pickleball-detection-1oqlw-8uadc
+  version: 1
   format: yolov8
-  classes: [ball, Court]  # we only use "ball" class
+  classes: [ball]
 
 # Court keypoints dataset (for Phase 2)
 court_keypoints:
@@ -18,9 +18,9 @@ court_keypoints:
 training:
   ball_detector:
     model: yolov8n.pt          # base model
-    imgsz: 320                 # input size (can increase to 640 later)
+    imgsz: 640
     epochs: 100
-    batch: 16
+    batch: 8
     patience: 15
     lr0: 0.01
     augment: true
@@ -36,5 +36,5 @@ training:
 
 # TFLite export
 export:
-  imgsz: 320                   # must match training imgsz
+  imgsz: 640                   # must match training imgsz
   int8: true                   # full integer quantization
